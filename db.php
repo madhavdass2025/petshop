@@ -4,7 +4,7 @@ session_start();
 $servername = "localhost";
 $username = "root";
 $password = "";
-$dbname = "pet_clinic_v3"; // Using a new DB name to avoid conflicts
+$dbname = "pet_clinic_final"; // New DB name for the final version
 
 // Create connection
 $conn = new mysqli($servername, $username, $password);
@@ -15,10 +15,7 @@ if ($conn->connect_error) {
 }
 
 // Create database
-$sql = "CREATE DATABASE IF NOT EXISTS $dbname";
-if ($conn->query($sql) === FALSE) {
-    echo "Error creating database: " . $conn->error;
-}
+$conn->query("CREATE DATABASE IF NOT EXISTS $dbname");
 $conn->select_db($dbname);
 
 $sql_queries = "
@@ -38,7 +35,7 @@ CREATE TABLE IF NOT EXISTS `consultations` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `patient_id` int(11) NOT NULL,
   `consultation_date` timestamp NOT NULL DEFAULT current_timestamp(),
-  `weight` decimal(5,2) DEFAULT NULL,
+  `weight` decimal(7,3) DEFAULT NULL,
   `temperature` decimal(4,2) DEFAULT NULL,
   `chief_complaint` text DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -49,8 +46,6 @@ CREATE TABLE IF NOT EXISTS `consultations` (
 CREATE TABLE IF NOT EXISTS `medicines_master` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `name` varchar(100) NOT NULL,
-  `generic_name` varchar(100) DEFAULT NULL,
-  `strength` varchar(50) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `name` (`name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -75,9 +70,6 @@ CREATE TABLE IF NOT EXISTS `prescribed_medicines` (
 CREATE TABLE IF NOT EXISTS `tests_master` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `name` varchar(100) NOT NULL,
-  `type` varchar(50) DEFAULT NULL,
-  `reference_range` varchar(100) DEFAULT NULL,
-  `units` varchar(20) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `name` (`name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -87,9 +79,6 @@ CREATE TABLE IF NOT EXISTS `ordered_tests` (
   `consultation_id` int(11) NOT NULL,
   `test_id` int(11) NOT NULL,
   `result` text DEFAULT NULL,
-  `is_abnormal` tinyint(1) DEFAULT 0,
-  `report_path` varchar(255) DEFAULT NULL,
-  `interpretation` text DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `consultation_id` (`consultation_id`),
   KEY `test_id` (`test_id`),
@@ -111,11 +100,5 @@ CREATE TABLE IF NOT EXISTS `attachments` (
 if (!$conn->multi_query($sql_queries)) {
     echo "Error creating tables: " . $conn->error;
 }
-
-// Clear multi_query results
-while ($conn->next_result()) {
-    if ($conn->more_results()) {
-        $conn->next_result();
-    }
-}
+while ($conn->next_result()) {;} // Clear results
 ?>

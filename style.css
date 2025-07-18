@@ -193,3 +193,20 @@ button:hover, .btn:hover {
     grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
     grid-gap: 20px;
 }
+
+.weight-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.weight-group input {
+    flex: 1;
+}
+.weight-group select {
+    flex-basis: 100px;
+}
+.previous-weight {
+    font-style: italic;
+    color: #6c757d;
+    margin-left: 15px;
+}

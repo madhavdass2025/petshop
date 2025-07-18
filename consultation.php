@@ -1,30 +1,30 @@
 <?php
 include 'db.php';
 
-// Redirect if no patient is selected
 if (!isset($_GET['patient_id'])) {
     header('Location: patients.php');
     exit;
 }
-
 $patient_id = (int)$_GET['patient_id'];
 
 // Clear session data if we are starting a new consultation for a different patient
 if (isset($_SESSION['consultation_patient_id']) && $_SESSION['consultation_patient_id'] != $patient_id) {
-    unset($_SESSION['prescribed_medicines']);
-    unset($_SESSION['ordered_tests']);
+    unset($_SESSION['prescribed_medicines'], $_SESSION['ordered_tests']);
 }
 $_SESSION['consultation_patient_id'] = $patient_id;
-
 
 // Fetch patient details
 $patient_sql = "SELECT * FROM patients WHERE id = $patient_id";
 $patient_result = $conn->query($patient_sql);
 if ($patient_result->num_rows == 0) {
-    echo "Patient not found.";
-    exit;
+    die("Patient not found.");
 }
 $patient = $patient_result->fetch_assoc();
+
+// Fetch the last recorded weight
+$last_weight_sql = "SELECT weight FROM consultations WHERE patient_id = $patient_id AND weight IS NOT NULL ORDER BY consultation_date DESC LIMIT 1";
+$last_weight_result = $conn->query($last_weight_sql);
+$last_weight = ($last_weight_result->num_rows > 0) ? $last_weight_result->fetch_assoc()['weight'] : null;
 
 ?>
 <!DOCTYPE html>
@@ -40,6 +40,7 @@ $patient = $patient_result->fetch_assoc();
 <div class="container">
     <a href="patients.php" class="btn btn-info" style="margin-bottom: 20px;">Back to Patient List</a>
 
+    <!-- Persistent Patient Header -->
     <div class="patient-header">
         <h1><?php echo htmlspecialchars($patient['name']); ?></h1>
         <div class="patient-info-grid">
@@ -52,35 +53,102 @@ $patient = $patient_result->fetch_assoc();
         </div>
     </div>
 
+    <!-- Status Messages -->
     <?php
-    // To display status messages from form submissions
     if (isset($_GET['status'])) {
         $status = $_GET['status'];
+        $msg_class = 'success';
+        $msg_text = '';
+
         if ($status == 'success') {
-            echo '<div style="color: green; border: 1px solid green; padding: 10px; margin-bottom: 15px; border-radius: 5px;">Consultation saved successfully!</div>';
+            $msg_text = 'Consultation saved successfully!';
+        } elseif ($status == 'attachment_success') {
+            $msg_text = 'Attachment uploaded successfully!';
         } elseif ($status == 'error') {
-            $msg = htmlspecialchars($_GET['msg'] ?? 'An unknown error occurred.');
-            echo '<div style="color: red; border: 1px solid red; padding: 10px; margin-bottom: 15px; border-radius: 5px;">Error: ' . $msg . '</div>';
+            $msg_class = 'error';
+            $msg_text = 'Error: ' . htmlspecialchars($_GET['msg'] ?? 'An unknown error occurred.');
+        }
+
+        if ($msg_text) {
+            echo "<div class='status-message {$msg_class}' style='padding: 10px; margin-bottom: 15px; border-radius: 5px; border: 1px solid; color: " . ($msg_class == 'success' ? 'green' : 'red') . "; background-color: " . ($msg_class == 'success' ? '#d4edda' : '#f8d7da') . ";'>{$msg_text}</div>";
         }
     }
     ?>
 
+    <!-- Tab Navigation -->
     <div class="tab-nav">
-        <button class="tab-link active" onclick="openTab(event, 'notes')">Notes</button>
-        <button class="tab-link" onclick="openTab(event, 'history')">History</button>
+        <button class="tab-link active" onclick="openTab(event, 'history')">History</button>
+        <button class="tab-link" onclick="openTab(event, 'notes')">Notes</button>
         <button class="tab-link" onclick="openTab(event, 'medicine')">Medicine</button>
         <button class="tab-link" onclick="openTab(event, 'test')">Test</button>
         <button class="tab-link" onclick="openTab(event, 'attachments')">Attachments</button>
         <button class="tab-link" onclick="openTab(event, 'preview')">Preview & Finish</button>
     </div>
 
-    <div id="notes" class="tab-content active">
+    <!-- Tab Content -->
+    <div id="history" class="tab-content active">
+        <h3>Medical History</h3>
+        <?php
+        $history_sql = "SELECT * FROM consultations WHERE patient_id = $patient_id ORDER BY consultation_date DESC";
+        $history_result = $conn->query($history_sql);
+        if ($history_result->num_rows > 0) {
+            while ($consult = $history_result->fetch_assoc()) {
+                $consult_id = $consult['id'];
+                echo "<div class='history-item' style='border: 1px solid #ccc; padding: 15px; margin-bottom: 15px; border-radius: 5px;'>";
+                echo "<h4>Consultation on " . date('d-m-Y h:i A', strtotime($consult['consultation_date'])) . "</h4>";
+                if ($consult['weight']) echo "<p><strong>Weight:</strong> " . htmlspecialchars($consult['weight']) . " kg</p>";
+                if ($consult['temperature']) echo "<p><strong>Temperature:</strong> " . htmlspecialchars($consult['temperature']) . " °C</p>";
+                if ($consult['chief_complaint']) echo "<p><strong>Notes:</strong> " . nl2br(htmlspecialchars($consult['chief_complaint'])) . "</p>";
+
+                // Medicines for this history item
+                $med_history_sql = "SELECT m.name, pm.notes FROM prescribed_medicines pm JOIN medicines_master m ON pm.medicine_id=m.id WHERE pm.consultation_id=$consult_id";
+                $med_history_res = $conn->query($med_history_sql);
+                if($med_history_res->num_rows > 0) {
+                    echo "<h5>Medicines Prescribed:</h5><ul>";
+                    while($med_row = $med_history_res->fetch_assoc()) {
+                        echo "<li>" . htmlspecialchars($med_row['name']) . " - " . htmlspecialchars($med_row['notes']) . "</li>";
+                    }
+                    echo "</ul>";
+                }
+
+                // Tests for this history item
+                $test_history_sql = "SELECT t.name, ot.result FROM ordered_tests ot JOIN tests_master t ON ot.test_id=t.id WHERE ot.consultation_id=$consult_id";
+                $test_history_res = $conn->query($test_history_sql);
+                if($test_history_res->num_rows > 0) {
+                    echo "<h5>Tests Ordered:</h5><ul>";
+                    while($test_row = $test_history_res->fetch_assoc()) {
+                        echo "<li>" . htmlspecialchars($test_row['name']) . ($test_row['result'] ? " (Result: ".htmlspecialchars($test_row['result']).")" : "") . "</li>";
+                    }
+                    echo "</ul>";
+                }
+
+                // Link to manage attachments for this specific past consultation
+                echo "<a href='consultation.php?patient_id={$patient_id}&consultation_id={$consult_id}' class='btn' style='background-color:#6c757d; margin-top:10px;'>Manage Attachments</a>";
+
+                echo "</div>";
+            }
+        } else {
+            echo "<p>No past medical history found.</p>";
+        }
+        ?>
+    </div>
+
+    <div id="notes" class="tab-content">
         <h3>Current Consultation Notes</h3>
         <form id="consultation-notes-form">
             <div class="grid-container">
                 <div class="form-group">
-                    <label for="weight">Weight (kg)</label>
-                    <input type="number" step="0.01" id="weight" name="weight">
+                    <label for="weight">Weight</label>
+                    <div class="weight-group">
+                        <input type="number" step="any" id="weight" name="weight">
+                        <select name="weight_unit" id="weight_unit">
+                            <option value="kg">kg</option>
+                            <option value="g">g</option>
+                        </select>
+                    </div>
+                    <?php if ($last_weight): ?>
+                        <span class="previous-weight">Previous: <?php echo htmlspecialchars($last_weight); ?> kg</span>
+                    <?php endif; ?>
                 </div>
                 <div class="form-group">
                     <label for="temperature">Temperature (°C)</label>
@@ -92,50 +160,6 @@ $patient = $patient_result->fetch_assoc();
                 <textarea id="chief_complaint" name="chief_complaint" rows="6"></textarea>
             </div>
         </form>
-    </div>
-
-    <div id="history" class="tab-content">
-        <h3>Medical History</h3>
-        <?php
-        $history_sql = "SELECT * FROM consultations WHERE patient_id = $patient_id ORDER BY consultation_date DESC";
-        $history_result = $conn->query($history_sql);
-
-        if ($history_result->num_rows > 0) {
-            while ($consult = $history_result->fetch_assoc()) {
-                $consultation_id = $consult['id'];
-                echo "<div class='history-item' style='border: 1px solid #ccc; padding: 15px; margin-bottom: 15px; border-radius: 5px;'>";
-                echo "<h4>Consultation on " . date('d-m-Y h:i A', strtotime($consult['consultation_date'])) . "</h4>";
-                echo "<p><strong>Weight:</strong> " . htmlspecialchars($consult['weight']) . " kg</p>";
-                echo "<p><strong>Temperature:</strong> " . htmlspecialchars($consult['temperature']) . " °C</p>";
-                echo "<p><strong>Notes:</strong> " . nl2br(htmlspecialchars($consult['chief_complaint'])) . "</p>";
-
-                // Fetch and display prescribed medicines for this past consultation
-                $med_sql = "SELECT mm.name, pm.notes FROM prescribed_medicines pm JOIN medicines_master mm ON pm.medicine_id = mm.id WHERE pm.consultation_id = $consultation_id";
-                $med_result = $conn->query($med_sql);
-                if ($med_result->num_rows > 0) {
-                    echo "<h5>Prescribed Medicines:</h5><ul>";
-                    while ($med = $med_result->fetch_assoc()) {
-                        echo "<li>" . htmlspecialchars($med['name']) . " - " . htmlspecialchars($med['notes']) . "</li>";
-                    }
-                    echo "</ul>";
-                }
-
-                // Fetch and display ordered tests for this past consultation
-                $test_sql = "SELECT tm.name, ot.result FROM ordered_tests ot JOIN tests_master tm ON ot.test_id = tm.id WHERE ot.consultation_id = $consultation_id";
-                $test_result = $conn->query($test_sql);
-                if ($test_result->num_rows > 0) {
-                    echo "<h5>Ordered Tests:</h5><ul>";
-                    while ($test = $test_result->fetch_assoc()) {
-                        echo "<li>" . htmlspecialchars($test['name']) . ($test['result'] ? " - Result: " . htmlspecialchars($test['result']) : "") . "</li>";
-                    }
-                    echo "</ul>";
-                }
-                echo "</div>";
-            }
-        } else {
-            echo "<p>No past medical history found for this patient.</p>";
-        }
-        ?>
     </div>
 
     <div id="medicine" class="tab-content">
@@ -234,29 +258,56 @@ $patient = $patient_result->fetch_assoc();
         <h3>Ordered Tests</h3>
         <div id="tests-preview-table"></div>
     </div>
-
     <div id="attachments" class="tab-content">
         <h3>Manage Attachments</h3>
-        <p>Attachments can only be added to a saved consultation. Please finish the current consultation first, then find it in the 'History' tab to add files.</p>
-        <!-- In a real app, you'd show an upload form here if the consultation is already saved -->
+        <?php
+        $consultation_id_for_attachments = $_GET['consultation_id'] ?? null;
+        if ($consultation_id_for_attachments):
+        ?>
+            <form action="upload_attachment.php" method="post" enctype="multipart/form-data">
+                <input type="hidden" name="patient_id" value="<?php echo $patient_id; ?>">
+                <input type="hidden" name="consultation_id" value="<?php echo $consultation_id_for_attachments; ?>">
+                <div class="form-group">
+                    <label for="description">File Description</label>
+                    <input type="text" name="description" id="description" required>
+                </div>
+                <div class="form-group">
+                    <label for="attachment_file">Select File</label>
+                    <input type="file" name="attachment_file" id="attachment_file" required>
+                </div>
+                <button type="submit" name="upload_attachment">Upload Attachment</button>
+            </form>
+            <hr>
+            <h4>Uploaded Files:</h4>
+            <?php
+            $att_sql = "SELECT * FROM attachments WHERE consultation_id = " . (int)$consultation_id_for_attachments;
+            $att_res = $conn->query($att_sql);
+            if($att_res->num_rows > 0) {
+                echo "<ul>";
+                while($att_row = $att_res->fetch_assoc()) {
+                    echo "<li><a href='" . htmlspecialchars($att_row['file_path']) . "' target='_blank'>" . htmlspecialchars($att_row['description']) . "</a></li>";
+                }
+                echo "</ul>";
+            } else {
+                echo "<p>No attachments for this consultation yet.</p>";
+            }
+            ?>
+        <?php else: ?>
+            <p>You must save a consultation before you can add attachments. To add attachments to a past visit, find it in the 'History' tab and click 'Manage Attachments'.</p>
+        <?php endif; ?>
     </div>
 
     <div id="preview" class="tab-content">
         <h3>Preview Consultation</h3>
         <form action="finish_consultation.php" method="POST" id="finish-form">
-            <!-- Hidden fields to carry over the main consultation notes -->
             <input type="hidden" name="weight" id="preview_weight">
+            <input type="hidden" name="weight_unit" id="preview_weight_unit">
             <input type="hidden" name="temperature" id="preview_temperature">
             <input type="hidden" name="chief_complaint" id="preview_chief_complaint">
-
-            <div id="preview-content" style="margin-bottom: 20px;">
-                <!-- Content will be loaded here by JS -->
-            </div>
-
-            <button type="submit" class="btn" name="finish_consultation">Finish and Save Consultation</button>
+            <div id="preview-content" style="margin-bottom: 20px;"></div>
+            <button type="submit" class="btn">Finish and Save Consultation</button>
         </form>
     </div>
-
 </div>
 
 <script>
@@ -273,7 +324,6 @@ function openTab(evt, tabName) {
     document.getElementById(tabName).style.display = "block";
     evt.currentTarget.className += " active";
 
-    // Load data for tabs when they are opened
     if (tabName === 'medicine') loadSessionMedicines();
     if (tabName === 'test') loadSessionTests();
     if (tabName === 'preview') generatePreview();
@@ -283,23 +333,21 @@ function toggleOtherField(selectElement, otherDivSelector) {
     document.querySelector(otherDivSelector).style.display = selectElement.value === 'other' ? 'block' : 'none';
 }
 
-// --- Medicine Functions ---
 function addMedicine() {
     const form = document.getElementById('medicine-form');
     const formData = new FormData(form);
     formData.append('action', 'add_medicine');
-
     fetch('ajax_handler.php', { method: 'POST', body: formData })
-    .then(res => res.json())
-    .then(data => {
-        if (data.status === 'success') {
-            loadSessionMedicines();
-            form.reset();
-            toggleOtherField({value: ''}, '#medicine_name_other_div');
-        } else {
-            alert('Error: ' + data.message);
-        }
-    });
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                loadSessionMedicines();
+                form.reset();
+                toggleOtherField({ value: '' }, '#medicine_name_other_div');
+            } else {
+                alert('Error: ' + data.message);
+            }
+        });
 }
 
 function removeMedicine(id) {
@@ -308,51 +356,47 @@ function removeMedicine(id) {
     formData.append('action', 'remove_medicine');
     formData.append('id', id);
     fetch('ajax_handler.php', { method: 'POST', body: formData })
-    .then(() => loadSessionMedicines());
+        .then(() => loadSessionMedicines());
 }
 
 function loadSessionMedicines() {
     fetch('ajax_handler.php?action=get_session_medicines')
-    .then(res => res.json())
-    .then(data => {
-        const previewDiv = document.getElementById('medicines-preview-table');
-        let tableHtml = '<table><thead><tr><th>Name</th><th>Dosage</th><th>Frequency</th><th>Notes</th><th>Action</th></tr></thead><tbody>';
-        if (data && data.length > 0) {
-            data.forEach(med => {
-                tableHtml += `
-                    <tr>
+        .then(res => res.json())
+        .then(data => {
+            const previewDiv = document.getElementById('medicines-preview-table');
+            let tableHtml = '<table><thead><tr><th>Name</th><th>Dosage</th><th>Notes</th><th>Action</th></tr></thead><tbody>';
+            if (data && data.length > 0) {
+                data.forEach(med => {
+                    tableHtml += `<tr>
                         <td>${escapeHTML(med.medicine_name)}</td>
                         <td>${escapeHTML(med.unit_quantity)} ${escapeHTML(med.unit_type)}</td>
-                        <td>${escapeHTML(med.frequency)}</td>
                         <td>${escapeHTML(med.notes)}</td>
                         <td><button type="button" class="btn-danger" onclick="removeMedicine('${med.id}')">Remove</button></td>
                     </tr>`;
-            });
-        } else {
-            tableHtml += '<tr><td colspan="5">No medicines added.</td></tr>';
-        }
-        tableHtml += '</tbody></table>';
-        previewDiv.innerHTML = tableHtml;
-    });
+                });
+            } else {
+                tableHtml += '<tr><td colspan="4">No medicines added.</td></tr>';
+            }
+            tableHtml += '</tbody></table>';
+            previewDiv.innerHTML = tableHtml;
+        });
 }
 
-// --- Test Functions ---
 function addTest() {
     const form = document.getElementById('test-form');
     const formData = new FormData(form);
     formData.append('action', 'add_test');
-
     fetch('ajax_handler.php', { method: 'POST', body: formData })
-    .then(res => res.json())
-    .then(data => {
-        if (data.status === 'success') {
-            loadSessionTests();
-            form.reset();
-            toggleOtherField({value: ''}, '#test_name_other_div');
-        } else {
-            alert('Error: ' + data.message);
-        }
-    });
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                loadSessionTests();
+                form.reset();
+                toggleOtherField({ value: '' }, '#test_name_other_div');
+            } else {
+                alert('Error: ' + data.message);
+            }
+        });
 }
 
 function removeTest(id) {
@@ -361,49 +405,47 @@ function removeTest(id) {
     formData.append('action', 'remove_test');
     formData.append('id', id);
     fetch('ajax_handler.php', { method: 'POST', body: formData })
-    .then(() => loadSessionTests());
+        .then(() => loadSessionTests());
 }
 
 function loadSessionTests() {
     fetch('ajax_handler.php?action=get_session_tests')
-    .then(res => res.json())
-    .then(data => {
-        const previewDiv = document.getElementById('tests-preview-table');
-        let tableHtml = '<table><thead><tr><th>Name</th><th>Action</th></tr></thead><tbody>';
-        if (data && data.length > 0) {
-            data.forEach(test => {
-                tableHtml += `
-                    <tr>
+        .then(res => res.json())
+        .then(data => {
+            const previewDiv = document.getElementById('tests-preview-table');
+            let tableHtml = '<table><thead><tr><th>Name</th><th>Action</th></tr></thead><tbody>';
+            if (data && data.length > 0) {
+                data.forEach(test => {
+                    tableHtml += `<tr>
                         <td>${escapeHTML(test.test_name)}</td>
                         <td><button type="button" class="btn-danger" onclick="removeTest('${test.id}')">Remove</button></td>
                     </tr>`;
-            });
-        } else {
-            tableHtml += '<tr><td colspan="2">No tests ordered.</td></tr>';
-        }
-        tableHtml += '</tbody></table>';
-        previewDiv.innerHTML = tableHtml;
-    });
+                });
+            } else {
+                tableHtml += '<tr><td colspan="2">No tests ordered.</td></tr>';
+            }
+            tableHtml += '</tbody></table>';
+            previewDiv.innerHTML = tableHtml;
+        });
 }
 
 function escapeHTML(str) {
-    if (str === null || str === undefined) return '';
-    return str.toString().replace(/[&<>"']/g, match => ({'&': '&amp;','<': '&lt;','>': '&gt;','"': '&quot;',"'": '&#39;'})[match]);
+    return str ? str.toString().replace(/[&<>"']/g, match => ({'&': '&amp;','<': '&lt;','>': '&gt;','"': '&quot;',"'": '&#39;'})[match]) : '';
 }
 
 function generatePreview() {
-    // 1. Populate hidden form fields with main consultation data from the 'Notes' tab
+    // Populate hidden form fields
     document.getElementById('preview_weight').value = document.getElementById('weight').value;
+    document.getElementById('preview_weight_unit').value = document.getElementById('weight_unit').value;
     document.getElementById('preview_temperature').value = document.getElementById('temperature').value;
     document.getElementById('preview_chief_complaint').value = document.getElementById('chief_complaint').value;
 
     const previewContent = document.getElementById('preview-content');
     let html = '<h4>Consultation Notes</h4>';
-    html += `<p><strong>Weight:</strong> ${escapeHTML(document.getElementById('weight').value) || 'N/A'} kg</p>`;
+    html += `<p><strong>Weight:</strong> ${escapeHTML(document.getElementById('weight').value)} ${escapeHTML(document.getElementById('weight_unit').value)}</p>`;
     html += `<p><strong>Temperature:</strong> ${escapeHTML(document.getElementById('temperature').value) || 'N/A'} °C</p>`;
     html += `<p><strong>Notes:</strong><br>${document.getElementById('chief_complaint').value.replace(/\n/g, '<br>') || 'No notes.'}</p><hr>`;
 
-    // 2. Fetch and display session medicines and tests
     const medsPromise = fetch('ajax_handler.php?action=get_session_medicines').then(res => res.json());
     const testsPromise = fetch('ajax_handler.php?action=get_session_tests').then(res => res.json());
 
@@ -426,15 +468,12 @@ function generatePreview() {
         } else {
             html += '<p>No tests ordered.</p>';
         }
-
         previewContent.innerHTML = html;
     });
 }
 
-
-// Set the 'Notes' tab to be active by default on page load
 document.addEventListener('DOMContentLoaded', function() {
-    document.querySelector('.tab-link').click();
+    document.querySelector('.tab-link.active').click();
 });
 </script>
 

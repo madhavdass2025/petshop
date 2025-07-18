@@ -50,7 +50,7 @@ function add_medicine_to_session() {
     }
 
     $medicine_entry = [
-        'id' => uniqid(), // More reliable unique ID
+        'id' => uniqid(),
         'medicine_id' => $medicine_id,
         'medicine_name' => $medicine_name,
         'medicine_name_other' => $_POST['medicine_name_other'] ?? '',
@@ -69,9 +69,7 @@ function add_medicine_to_session() {
 function remove_medicine_from_session() {
     $remove_id = $_POST['id'];
     if (isset($_SESSION['prescribed_medicines'])) {
-        $_SESSION['prescribed_medicines'] = array_values(array_filter($_SESSION['prescribed_medicines'], function($med) use ($remove_id) {
-            return $med['id'] != $remove_id;
-        }));
+        $_SESSION['prescribed_medicines'] = array_values(array_filter($_SESSION['prescribed_medicines'], fn($med) => $med['id'] != $remove_id));
     }
     echo json_encode(['status' => 'success']);
 }
@@ -119,9 +117,7 @@ function add_test_to_session() {
 function remove_test_from_session() {
     $remove_id = $_POST['id'];
     if (isset($_SESSION['ordered_tests'])) {
-        $_SESSION['ordered_tests'] = array_values(array_filter($_SESSION['ordered_tests'], function($test) use ($remove_id) {
-            return $test['id'] != $remove_id;
-        }));
+        $_SESSION['ordered_tests'] = array_values(array_filter($_SESSION['ordered_tests'], fn($test) => $test['id'] != $remove_id));
     }
     echo json_encode(['status' => 'success']);
 }
