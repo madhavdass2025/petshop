@@ -3,33 +3,33 @@ include 'db.php';
 
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
 
+// Simple router for AJAX actions
 switch ($action) {
     case 'add_medicine':
-        add_medicine();
+        add_medicine_to_session();
         break;
     case 'remove_medicine':
-        remove_medicine();
+        remove_medicine_from_session();
         break;
     case 'get_session_medicines':
         get_session_medicines();
         break;
     case 'add_test':
-        add_test();
+        add_test_to_session();
         break;
     case 'remove_test':
-        remove_test();
+        remove_test_from_session();
         break;
     case 'get_session_tests':
         get_session_tests();
         break;
 }
 
-function add_medicine() {
+function add_medicine_to_session() {
     if (!isset($_SESSION['prescribed_medicines'])) {
         $_SESSION['prescribed_medicines'] = [];
     }
 
-    // Server-side validation
     if (empty($_POST['medicine_id']) || ($_POST['medicine_id'] == 'other' && empty($_POST['medicine_name_other']))) {
         echo json_encode(['status' => 'error', 'message' => 'Medicine name is required.']);
         return;
@@ -39,11 +39,8 @@ function add_medicine() {
     $medicine_name = '';
 
     if ($medicine_id == 'other') {
-        // The medicine doesn't exist in the master, so we use the temp name.
-        // It will be added to the master table upon finishing the consultation.
         $medicine_name = $_POST['medicine_name_other'];
     } else {
-        // Fetch the name from the master table for display
         global $conn;
         $id = (int)$medicine_id;
         $result = $conn->query("SELECT name FROM medicines_master WHERE id = $id");
@@ -53,9 +50,9 @@ function add_medicine() {
     }
 
     $medicine_entry = [
-        'id' => time() . rand(), // a unique ID for the session array
-        'medicine_id' => $medicine_id, // 'other' or a real ID
-        'medicine_name' => $medicine_name, // The display name
+        'id' => uniqid(), // More reliable unique ID
+        'medicine_id' => $medicine_id,
+        'medicine_name' => $medicine_name,
         'medicine_name_other' => $_POST['medicine_name_other'] ?? '',
         'frequency' => $_POST['frequency'],
         'dosage_form' => $_POST['dosage_form'],
@@ -69,14 +66,12 @@ function add_medicine() {
     echo json_encode(['status' => 'success']);
 }
 
-function remove_medicine() {
+function remove_medicine_from_session() {
     $remove_id = $_POST['id'];
     if (isset($_SESSION['prescribed_medicines'])) {
-        $_SESSION['prescribed_medicines'] = array_filter($_SESSION['prescribed_medicines'], function($med) use ($remove_id) {
+        $_SESSION['prescribed_medicines'] = array_values(array_filter($_SESSION['prescribed_medicines'], function($med) use ($remove_id) {
             return $med['id'] != $remove_id;
-        });
-        // Re-index array
-        $_SESSION['prescribed_medicines'] = array_values($_SESSION['prescribed_medicines']);
+        }));
     }
     echo json_encode(['status' => 'success']);
 }
@@ -86,8 +81,7 @@ function get_session_medicines() {
     echo json_encode($_SESSION['prescribed_medicines'] ?? []);
 }
 
-
-function add_test() {
+function add_test_to_session() {
     if (!isset($_SESSION['ordered_tests'])) {
         $_SESSION['ordered_tests'] = [];
     }
@@ -112,9 +106,9 @@ function add_test() {
     }
 
     $test_entry = [
-        'id' => time() . rand(), // unique session ID
-        'test_id' => $test_id, // 'other' or a real ID
-        'test_name' => $test_name, // display name
+        'id' => uniqid(),
+        'test_id' => $test_id,
+        'test_name' => $test_name,
         'test_name_other' => $_POST['test_name_other'] ?? '',
     ];
 
@@ -122,13 +116,12 @@ function add_test() {
     echo json_encode(['status' => 'success']);
 }
 
-function remove_test() {
+function remove_test_from_session() {
     $remove_id = $_POST['id'];
     if (isset($_SESSION['ordered_tests'])) {
-        $_SESSION['ordered_tests'] = array_filter($_SESSION['ordered_tests'], function($test) use ($remove_id) {
+        $_SESSION['ordered_tests'] = array_values(array_filter($_SESSION['ordered_tests'], function($test) use ($remove_id) {
             return $test['id'] != $remove_id;
-        });
-        $_SESSION['ordered_tests'] = array_values($_SESSION['ordered_tests']);
+        }));
     }
     echo json_encode(['status' => 'success']);
 }

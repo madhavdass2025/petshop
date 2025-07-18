@@ -4,7 +4,7 @@ session_start();
 $servername = "localhost";
 $username = "root";
 $password = "";
-$dbname = "pet_clinic_v2";
+$dbname = "pet_clinic_v3"; // Using a new DB name to avoid conflicts
 
 // Create connection
 $conn = new mysqli($servername, $username, $password);
@@ -97,26 +97,6 @@ CREATE TABLE IF NOT EXISTS `ordered_tests` (
   CONSTRAINT `ordered_tests_ibfk_2` FOREIGN KEY (`test_id`) REFERENCES `tests_master` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE TABLE IF NOT EXISTS `injections_master` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `name` varchar(100) NOT NULL,
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-CREATE TABLE IF NOT EXISTS `administered_injections` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `consultation_id` int(11) NOT NULL,
-  `injection_id` int(11) NOT NULL,
-  `dosage` varchar(50) DEFAULT NULL,
-  `route` varchar(50) DEFAULT NULL,
-  `site` varchar(50) DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  KEY `consultation_id` (`consultation_id`),
-  KEY `injection_id` (`injection_id`),
-  CONSTRAINT `administered_injections_ibfk_1` FOREIGN KEY (`consultation_id`) REFERENCES `consultations` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `administered_injections_ibfk_2` FOREIGN KEY (`injection_id`) REFERENCES `injections_master` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
 CREATE TABLE IF NOT EXISTS `attachments` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `consultation_id` int(11) NOT NULL,
@@ -125,15 +105,6 @@ CREATE TABLE IF NOT EXISTS `attachments` (
   PRIMARY KEY (`id`),
   KEY `consultation_id` (`consultation_id`),
   CONSTRAINT `attachments_ibfk_1` FOREIGN KEY (`consultation_id`) REFERENCES `consultations` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-CREATE TABLE IF NOT EXISTS `users` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `username` varchar(50) NOT NULL,
-  `password` varchar(255) NOT NULL,
-  `role` enum('doctor','lab_incharge','admin') NOT NULL,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `username` (`username`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ";
 
@@ -147,13 +118,4 @@ while ($conn->next_result()) {
         $conn->next_result();
     }
 }
-
-// You can add default data insertion here if needed, for example, a default admin user.
-$sql = "SELECT * FROM users WHERE username = 'admin'";
-$result = $conn->query($sql);
-if ($result->num_rows == 0) {
-    $admin_pass = password_hash('admin123', PASSWORD_DEFAULT);
-    $conn->query("INSERT INTO users (username, password, role) VALUES ('admin', '$admin_pass', 'admin')");
-}
-
 ?>

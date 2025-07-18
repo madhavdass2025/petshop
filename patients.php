@@ -80,7 +80,7 @@ $patients_result = $conn->query($patients_sql);
         </form>
     </div>
 
-    <hr>
+    <hr style="margin: 30px 0;">
 
     <div class="patient-list">
         <h2>Patient List</h2>
