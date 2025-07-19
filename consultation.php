@@ -1,6 +1,11 @@
 <?php
 include 'db.php';
 
+if (!isset($_SESSION['user_id'])) {
+    header('Location: login.php');
+    exit;
+}
+
 if (!isset($_GET['patient_id'])) {
     header('Location: patients.php');
     exit;
@@ -39,6 +44,7 @@ $last_weight = ($last_weight_result->num_rows > 0) ? $last_weight_result->fetch_
 
 <div class="container">
     <a href="patients.php" class="btn btn-info" style="margin-bottom: 20px;">Back to Patient List</a>
+    <a href="report.php?patient_id=<?php echo $patient_id; ?>" class="btn" style="margin-bottom: 20px;">Print Report</a>
 
     <!-- Persistent Patient Header -->
     <div class="patient-header">
@@ -89,13 +95,16 @@ $last_weight = ($last_weight_result->num_rows > 0) ? $last_weight_result->fetch_
     <div id="history" class="tab-content active">
         <h3>Medical History</h3>
         <?php
-        $history_sql = "SELECT * FROM consultations WHERE patient_id = $patient_id ORDER BY consultation_date DESC";
-        $history_result = $conn->query($history_sql);
-        if ($history_result->num_rows > 0) {
-            while ($consult = $history_result->fetch_assoc()) {
+        $history_sql = "SELECT c.*, u.username FROM consultations c JOIN users u ON c.submitted_by = u.id WHERE c.patient_id = :patient_id AND c.cancel = 0 ORDER BY c.consultation_date DESC";
+        $stmt = $conn->prepare($history_sql);
+        $stmt->bindParam(':patient_id', $patient_id);
+        $stmt->execute();
+        $history_result = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        if (count($history_result) > 0) {
+            foreach ($history_result as $consult) {
                 $consult_id = $consult['id'];
                 echo "<div class='history-item' style='border: 1px solid #ccc; padding: 15px; margin-bottom: 15px; border-radius: 5px;'>";
-                echo "<h4>Consultation on " . date('d-m-Y h:i A', strtotime($consult['consultation_date'])) . "</h4>";
+                echo "<h4>Consultation on " . date('d-m-Y h:i A', strtotime($consult['consultation_date'])) . " (by " . htmlspecialchars($consult['username']) . ")</h4>";
                 if ($consult['weight']) echo "<p><strong>Weight:</strong> " . htmlspecialchars($consult['weight']) . " kg</p>";
                 if ($consult['temperature']) echo "<p><strong>Temperature:</strong> " . htmlspecialchars($consult['temperature']) . " °C</p>";
                 if ($consult['chief_complaint']) echo "<p><strong>Notes:</strong> " . nl2br(htmlspecialchars($consult['chief_complaint'])) . "</p>";
@@ -124,6 +133,10 @@ $last_weight = ($last_weight_result->num_rows > 0) ? $last_weight_result->fetch_
 
                 // Link to manage attachments for this specific past consultation
                 echo "<a href='consultation.php?patient_id={$patient_id}&consultation_id={$consult_id}' class='btn' style='background-color:#6c757d; margin-top:10px;'>Manage Attachments</a>";
+
+                if ($_SESSION['role'] === 'admin') {
+                    echo " <a href='delete.php?type=consultation&id=" . $consult_id . "' class='btn btn-danger' onclick='return confirm(\"Are you sure you want to delete this consultation?\")'>Delete</a>";
+                }
 
                 echo "</div>";
             }
@@ -324,8 +337,8 @@ function openTab(evt, tabName) {
     document.getElementById(tabName).style.display = "block";
     evt.currentTarget.className += " active";
 
-    if (tabName === 'medicine') loadSessionMedicines();
-    if (tabName === 'test') loadSessionTests();
+    if (tabName === 'medicine') loadMedicines();
+    if (tabName === 'test') loadTests();
     if (tabName === 'preview') generatePreview();
 }
 
@@ -350,17 +363,8 @@ function addMedicine() {
         });
 }
 
-function removeMedicine(id) {
-    if (!confirm('Are you sure?')) return;
-    const formData = new FormData();
-    formData.append('action', 'remove_medicine');
-    formData.append('id', id);
-    fetch('ajax_handler.php', { method: 'POST', body: formData })
-        .then(() => loadSessionMedicines());
-}
-
-function loadSessionMedicines() {
-    fetch('ajax_handler.php?action=get_session_medicines')
+function loadMedicines() {
+    fetch('ajax_handler.php?action=get_medicines')
         .then(res => res.json())
         .then(data => {
             const previewDiv = document.getElementById('medicines-preview-table');
@@ -371,7 +375,11 @@ function loadSessionMedicines() {
                         <td>${escapeHTML(med.medicine_name)}</td>
                         <td>${escapeHTML(med.unit_quantity)} ${escapeHTML(med.unit_type)}</td>
                         <td>${escapeHTML(med.notes)}</td>
-                        <td><button type="button" class="btn-danger" onclick="removeMedicine('${med.id}')">Remove</button></td>
+                        <td>`;
+                    if ("<?php echo $_SESSION['role']; ?>" === 'admin') {
+                        tableHtml += `<a href='delete.php?type=medicine&id=${med.id}' class='btn btn-danger btn-sm' onclick='return confirm(\"Are you sure?\")'>Delete</a>`;
+                    }
+                    tableHtml += `</td>
                     </tr>`;
                 });
             } else {
@@ -399,17 +407,8 @@ function addTest() {
         });
 }
 
-function removeTest(id) {
-    if (!confirm('Are you sure?')) return;
-    const formData = new FormData();
-    formData.append('action', 'remove_test');
-    formData.append('id', id);
-    fetch('ajax_handler.php', { method: 'POST', body: formData })
-        .then(() => loadSessionTests());
-}
-
-function loadSessionTests() {
-    fetch('ajax_handler.php?action=get_session_tests')
+function loadTests() {
+    fetch('ajax_handler.php?action=get_tests')
         .then(res => res.json())
         .then(data => {
             const previewDiv = document.getElementById('tests-preview-table');
@@ -418,7 +417,11 @@ function loadSessionTests() {
                 data.forEach(test => {
                     tableHtml += `<tr>
                         <td>${escapeHTML(test.test_name)}</td>
-                        <td><button type="button" class="btn-danger" onclick="removeTest('${test.id}')">Remove</button></td>
+                        <td>`;
+                    if ("<?php echo $_SESSION['role']; ?>" === 'admin') {
+                        tableHtml += `<a href='delete.php?type=test&id=${test.id}' class='btn btn-danger btn-sm' onclick='return confirm(\"Are you sure?\")'>Delete</a>`;
+                    }
+                    tableHtml += `</td>
                     </tr>`;
                 });
             } else {
@@ -446,8 +449,8 @@ function generatePreview() {
     html += `<p><strong>Temperature:</strong> ${escapeHTML(document.getElementById('temperature').value) || 'N/A'} °C</p>`;
     html += `<p><strong>Notes:</strong><br>${document.getElementById('chief_complaint').value.replace(/\n/g, '<br>') || 'No notes.'}</p><hr>`;
 
-    const medsPromise = fetch('ajax_handler.php?action=get_session_medicines').then(res => res.json());
-    const testsPromise = fetch('ajax_handler.php?action=get_session_tests').then(res => res.json());
+    const medsPromise = fetch('ajax_handler.php?action=get_medicines').then(res => res.json());
+    const testsPromise = fetch('ajax_handler.php?action=get_tests').then(res => res.json());
 
     Promise.all([medsPromise, testsPromise]).then(([meds, tests]) => {
         html += '<h4>Prescribed Medicines</h4>';

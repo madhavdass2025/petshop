@@ -1,31 +1,51 @@
 <?php
 include 'db.php';
 
+if (!isset($_SESSION['user_id'])) {
+    header('Location: login.php');
+    exit;
+}
+
 // Handle adding a new patient
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_patient'])) {
-    $name = $conn->real_escape_string($_POST['name']);
-    $species = $conn->real_escape_string($_POST['species']);
-    $breed = $conn->real_escape_string($_POST['breed']);
-    $age = $conn->real_escape_string($_POST['age']);
-    $gender = $conn->real_escape_string($_POST['gender']);
-    $owner_name = $conn->real_escape_string($_POST['owner_name']);
-    $owner_contact = $conn->real_escape_string($_POST['owner_contact']);
+    $name = $_POST['name'];
+    $species = $_POST['species'];
+    $breed = $_POST['breed'];
+    $age = $_POST['age'];
+    $gender = $_POST['gender'];
+    $owner_name = $_POST['owner_name'];
+    $owner_contact = $_POST['owner_contact'];
+    $submitted_by = $_SESSION['user_id'];
 
-    $insert_sql = "INSERT INTO patients (name, species, breed, age, gender, owner_name, owner_contact) VALUES ('$name', '$species', '$breed', '$age', '$gender', '$owner_name', '$owner_contact')";
-    if (!$conn->query($insert_sql)) {
-        echo "Error: " . $conn->error;
+    $stmt = $conn->prepare("INSERT INTO patients (name, species, breed, age, gender, owner_name, owner_contact, submitted_by) VALUES (:name, :species, :breed, :age, :gender, :owner_name, :owner_contact, :submitted_by)");
+    $stmt->bindParam(':name', $name);
+    $stmt->bindParam(':species', $species);
+    $stmt->bindParam(':breed', $breed);
+    $stmt->bindParam(':age', $age);
+    $stmt->bindParam(':gender', $gender);
+    $stmt->bindParam(':owner_name', $owner_name);
+    $stmt->bindParam(':owner_contact', $owner_contact);
+    $stmt->bindParam(':submitted_by', $submitted_by);
+    if (!$stmt->execute()) {
+        echo "Error: " . $stmt->errorInfo()[2];
     }
 }
 
 // Handle search
 $search_query = "";
 if (isset($_GET['search'])) {
-    $search_term = $conn->real_escape_string($_GET['search']);
-    $search_query = " WHERE name LIKE '%$search_term%' OR owner_name LIKE '%$search_term%'";
+    $search_term = $_GET['search'];
+    $search_query = " AND (name LIKE :search_term OR owner_name LIKE :search_term)";
 }
 
-$patients_sql = "SELECT * FROM patients" . $search_query . " ORDER BY id DESC";
-$patients_result = $conn->query($patients_sql);
+$patients_sql = "SELECT * FROM patients WHERE cancel = 0" . $search_query . " ORDER BY id DESC";
+$stmt = $conn->prepare($patients_sql);
+if (isset($_GET['search'])) {
+    $search_param = "%" . $_GET['search'] . "%";
+    $stmt->bindParam(':search_term', $search_param);
+}
+$stmt->execute();
+$patients_result = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -37,7 +57,10 @@ $patients_result = $conn->query($patients_sql);
 </head>
 <body>
 <div class="container">
-    <h1>Patient Management</h1>
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h1>Patient Management</h1>
+        <a href="logout.php" class="btn btn-danger">Logout</a>
+    </div>
 
     <div class="add-patient-form">
         <h2>Add New Patient</h2>
@@ -101,14 +124,18 @@ $patients_result = $conn->query($patients_sql);
             </thead>
             <tbody>
                 <?php
-                if ($patients_result->num_rows > 0) {
-                    while ($patient = $patients_result->fetch_assoc()) {
+                if (count($patients_result) > 0) {
+                    foreach ($patients_result as $patient) {
                         echo "<tr>";
                         echo "<td>" . htmlspecialchars($patient['name']) . "</td>";
                         echo "<td>" . htmlspecialchars($patient['species']) . "</td>";
                         echo "<td>" . htmlspecialchars($patient['breed']) . "</td>";
                         echo "<td>" . htmlspecialchars($patient['owner_name']) . "</td>";
-                        echo "<td><a href='consultation.php?patient_id=" . $patient['id'] . "' class='btn'>Start Consultation</a></td>";
+                        echo "<td><a href='consultation.php?patient_id=" . $patient['id'] . "' class='btn'>Start Consultation</a>";
+                        if ($_SESSION['role'] === 'admin') {
+                            echo " <a href='delete.php?type=patient&id=" . $patient['id'] . "' class='btn btn-danger' onclick='return confirm(\"Are you sure you want to delete this patient?\")'>Delete</a>";
+                        }
+                        echo "</td>";
                         echo "</tr>";
                     }
                 } else {
